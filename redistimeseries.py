@@ -284,7 +284,7 @@ class RedisTimeSeries(object):
             key_tester = key_tester_keepall if keepall else key_tester_keepsome
             record_grabber = partial(key_tester, test_list, json.loads)
         
-        producer = partial(produce_result_general, record_grabber)
+        producer = partial(self.produce_result_general, record_grabber)
  
         if begin_key == end_key:
             producer(res, begin_key, begin_off, end_off-1)
