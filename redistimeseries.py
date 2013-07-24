@@ -7,7 +7,7 @@ from functools import partial
 
 """
 All data is key'd by the timestep so there's a separate key for each timestep
-Therefore, you can add all sorts to data from different sources and it will be 
+Therefore, you can add all sorts to data from different sources and it will be
 grouped by the timestep
 
 Every data point is terminated by a \x00 byte
@@ -43,7 +43,7 @@ def decode_record(r):
     """
     r is a string
     The record has fields of:
-        time, data, and 
+        time, data, and
     """
     res = {}
     # print "the record", r
@@ -66,7 +66,7 @@ def key_tester_keepall(test_list, parser, record, results):
             record["data"] = data
             results.append(record)
             return
-# end def 
+# end def
 
 def key_tester_keepsome(test_list, parser, record, results):
     data = parser(record["data"])
@@ -87,9 +87,21 @@ def keep_everything(parser, record, results):
         results.append(record)
 # end def
 
+def _make_value(data, now=time.time(), origin_time=None):
+    data = tsencode(data)
+    if origin_time:
+        origin_time = tsencode(origin_time)
+    value = str(float(now)) + "\x01" + str(data)
+    if origin_time:
+        value += ("\x01" + str(origin_time))
+    value += "\x00"
+    return value
+# end def
+
+
 class RedisTimeSeries(object):
     def __init__(self, prefix, timestep, redis):
-        """ prefix is a 
+        """ prefix is a
             timestep is the time step to track
             redis is the redis connection handle
         """
@@ -121,25 +133,29 @@ class RedisTimeSeries(object):
         at a remote source, is available and the additional accuracy is desired
         origin time doesn't really even need to be a time since it is handled
         as a string
-        
-        returns the insertion time 
+
+        returns the insertion time
         (you might use for real time plotting purposes)
         """
-        data = tsencode(data)
-        if origin_time:
-            origin_time = tsencode(origin_time)
         now = time.time()
-        value = str(float(now)) + "\x01" + str(data)
-        if origin_time:
-            value += ("\x01" + str(origin_time))
-        value += "\x00"
+        value = _make_value(data, now=now, origin_time=origin_time)
         self.redis.append(self.getkey(int(now)), value)
         return now
     # end def
-    
+
+    def add_many(self, data, origin_time=None):
+        now = time.time()
+        value = ''
+        for d in data:
+            value += _make_value(d, now=now, origin_time=origin_time)
+
+        self.redis.append(self.getkey(int(now)), value)
+        return now
+    # end def
+
     def seek(self, the_time):
         """
-        Binary search for the best matching time to the_time in the 
+        Binary search for the best matching time to the_time in the
         time series
         """
         best_start = None
@@ -182,12 +198,12 @@ class RedisTimeSeries(object):
                         best_time = dr["time"]
                     # end if
                     if max_idx - min_idx == 1:
-                        return best_start 
+                        return best_start
                     break
                 # end if
                 # Already at the end of the string but still no luck?
                 if range_end == length:
-                    return length + 1 
+                    return length + 1
                 # We need to enlrange the range, it is interesting to note
                 # that we take the enlarged value: likely other time series
                 # will be the same size on average.
@@ -217,11 +233,11 @@ class RedisTimeSeries(object):
                     result.append(record)
         # end if
     # end def
-    
+
     def produce_result_general(self, record_grabber, result, key, range_begin, range_end):
         """Used once a set of keys bookending a time range of interest are
         found to append to the result list passed to the function
-        
+
         This generalized version uses the callable record_grabber to decide
         how to append the record to the list
         """
@@ -238,7 +254,7 @@ class RedisTimeSeries(object):
 
     def fetch_range(self, begin_time, end_time):
         """ Get all data beginning and ending at times of interest
-        
+
         return a list of strings of decoded data
         """
         res = []
@@ -255,37 +271,37 @@ class RedisTimeSeries(object):
                 t += self.timestep
                 key = self.getkey(t)
                 if key == end_key:
-                    break 
+                    break
                 self.produce_result(res, key, 0, -1)
             # end def
             self.produce_result(res, end_key, 0, end_off-1)
         # end def
         return res
     # end def
-            
+
     def fetch_range_json(self, begin_time, end_time, test_list=[], keepall=True):
         """ Get all data beginning and ending at times of interest
-        
+
         return a list of dictionaries of decoded data based on a test list of
-        keys.  
+        keys.
             if testlist is empty it json decodes everything
-            if keepall is true it selectively keeps data 
+            if keepall is true it selectively keeps data
         """
         res = []
         begin_key = self.getkey(begin_time)
         end_key = self.getkey(end_time)
         begin_off = self.seek(begin_time)
         end_off = self.seek(end_time)
-    
+
         if len(test_list) > 0:
             # we want every data point in the range
             record_grabber = partial(keep_everything, json.loads)
         else:
             key_tester = key_tester_keepall if keepall else key_tester_keepsome
             record_grabber = partial(key_tester, test_list, json.loads)
-        
+
         producer = partial(self.produce_result_general, record_grabber)
- 
+
         if begin_key == end_key:
             producer(res, begin_key, begin_off, end_off-1)
         else:
@@ -295,17 +311,17 @@ class RedisTimeSeries(object):
                 t += self.timestep
                 key = self.getkey(t)
                 if key == end_key:
-                    break 
+                    break
                 producer(res, key, 0, -1)
             # end def
             producer(res, end_key, 0, end_off-1)
         # end def
         return res
     # end def
-    
+
     def fetch_timestep(self, the_time):
-        """ Get all data points in a given timestep 
-        """ 
+        """ Get all data points in a given timestep
+        """
         res = []
         key = self.getkey(the_time)
         self.produce_result(res,key,0,-1)
